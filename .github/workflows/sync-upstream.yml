@@ -1,0 +1,139 @@
+name: 同步上游并自动打包
+
+# 每天检查一次上游 SakiRinn/LiveCaptions-Translator 的 master：
+#   - 上游无新提交         -> 什么都不做
+#   - 有新提交且能干净合并 -> 自动 merge + push，然后构建 x64 自包含单文件 exe，发一个 Release
+#   - 有冲突               -> 整体失败，不 merge、不 push、不打包，等人工处理
+# 也可以随时在 Actions 页面手动运行，勾 force_build 强制重新打一次包。
+
+on:
+  schedule:
+    - cron: '0 18 * * *'        # UTC 18:00 = 北京时间 02:00（GitHub 定时不保证准点）
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: 上游没更新也强制重新打包一次
+        type: boolean
+        default: false
+
+# GITHUB_TOKEN 需要能 push 合并结果、创建 Release
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-build
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: 检查并合并上游
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.merge.outputs.build }}
+      sha: ${{ steps.merge.outputs.sha }}
+      reason: ${{ steps.merge.outputs.reason }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Merge upstream
+        id: merge
+        env:
+          FORCE: ${{ inputs.force_build }}
+        run: |
+          set -euo pipefail
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/SakiRinn/LiveCaptions-Translator.git
+          git fetch --no-tags upstream master
+
+          # 用 FETCH_HEAD 而不是 upstream/master：不依赖 remote-tracking ref 是否被创建
+          UP=$(git rev-parse FETCH_HEAD)
+          BEFORE=$(git rev-parse HEAD)
+          echo "fork HEAD = $BEFORE ; upstream HEAD = $UP"
+
+          if git merge-base --is-ancestor "$UP" HEAD; then
+            if [ "${FORCE:-false}" = "true" ]; then
+              echo 'build=true' >> "$GITHUB_OUTPUT"
+              echo 'reason=手动强制重建（上游无新提交）' >> "$GITHUB_OUTPUT"
+            else
+              echo 'build=false' >> "$GITHUB_OUTPUT"
+              echo 'reason=上游无新提交，跳过打包' >> "$GITHUB_OUTPUT"
+            fi
+            echo "sha=$BEFORE" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # 只接受能干净合并的更新；一旦冲突就整体回滚，绝不留在半合并状态
+          if ! git merge --no-edit "$UP"; then
+            git merge --abort
+            echo '::error::上游更新与本 fork 改动冲突：已放弃合并，未 push、未打包，需要手工 merge。'
+            exit 1
+          fi
+
+          git push origin HEAD:master
+          AFTER=$(git rev-parse HEAD)
+          echo 'build=true' >> "$GITHUB_OUTPUT"
+          echo "reason=已合并上游 ${UP:0:12}" >> "$GITHUB_OUTPUT"
+          echo "sha=$AFTER" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: 构建并发布 Release
+    needs: sync
+    if: needs.sync.outputs.build == 'true'
+    runs-on: windows-latest
+    env:
+      REASON: ${{ needs.sync.outputs.reason }}
+      MERGED_SHA: ${{ needs.sync.outputs.sha }}
+    steps:
+      - name: Checkout merged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.sync.outputs.sha }}
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish single-file exe
+        shell: pwsh
+        run: |
+          dotnet publish LiveCaptionsTranslator.csproj -c Release -r win-x64 `
+            --self-contained true -p:PublishSingleFile=true `
+            -p:EnableCompressionInSingleFile=true -o publish
+          if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed: $LASTEXITCODE" }
+          $src = Join-Path $PWD 'publish\LiveCaptionsTranslator.exe'
+          if (-not (Test-Path -LiteralPath $src)) { throw 'publish/LiveCaptionsTranslator.exe not found' }
+          $dst = Join-Path $PWD 'publish\LiveCaptionsTranslator-win-x64-withruntime.exe'
+          Copy-Item -LiteralPath $src -Destination $dst -Force
+          Get-Item -LiteralPath $dst | Select-Object Name, Length | Format-List
+
+      - name: Create Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = 'auto-' + (Get-Date -ToUniversalTime()).ToString('yyyyMMdd-HHmmss')
+          $exe = Join-Path $PWD 'publish\LiveCaptionsTranslator-win-x64-withruntime.exe'
+          $notes = @"
+          Auto build: upstream synced without conflicts (or manual force rebuild).
+
+          - Reason: $env:REASON
+          - Fork commit: $env:MERGED_SHA
+          - Upstream: SakiRinn/LiveCaptions-Translator@master
+          - Asset: LiveCaptionsTranslator-win-x64-withruntime.exe (self-contained single file, ~72 MB)
+
+          Replace the exe of the same name in D:\tools\LiveCaptionsTranslator, then run 启动翻译引擎.bat.
+          setting.json and the .bat/.ps1 scripts are not touched.
+
+          Permanent download URL:
+          https://github.com/ClutchBear/LiveCaptions-Translator/releases/latest/download/LiveCaptionsTranslator-win-x64-withruntime.exe
+          "@
+          $notesFile = Join-Path $PWD 'release-notes.md'
+          [System.IO.File]::WriteAllText($notesFile, $notes, [System.Text.UTF8Encoding]::new($false))
+          gh release create $tag $exe --target $env:MERGED_SHA --title "Auto build $tag" --notes-file $notesFile
+          if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
