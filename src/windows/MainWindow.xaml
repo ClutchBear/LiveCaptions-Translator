@@ -38,6 +38,21 @@
                 </ui:TitleBar.Header>
                 <ui:TitleBar.TrailingContent>
                     <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
+                        <!--  LiveCaptions 的语音识别语言（它「听」什么语言）。
+                              注意：这不影响翻译目标语言（那是设置页的 Target Language）。  -->
+                        <ComboBox
+                            x:Name="SpokenLanguageBox"
+                            Width="104"
+                            Height="24"
+                            Margin="0,0,8,0"
+                            Padding="8,0,4,2"
+                            VerticalAlignment="Center"
+                            FontSize="12"
+                            ToolTip="LiveCaptions 听的语音语言（语音识别）。切换约需 3~5 秒。"
+                            SelectionChanged="SpokenLanguageBox_SelectionChanged">
+                            <ComboBoxItem Content="English" Tag="英语(美国)" />
+                            <ComboBoxItem Content="日本語" Tag="日语(日本)" />
+                        </ComboBox>
                         <ui:Button
                             x:Name="CaptionLogButton"
                             Margin="0,0,5,0"

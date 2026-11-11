@@ -16,6 +16,9 @@ namespace LiveCaptionsTranslator.apis
         public static extern bool ShowWindow(nint hWnd, int nCmdShow);
 
         [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool IsIconic(nint hWnd);
+
+        [DllImport("user32.dll", SetLastError = true)]
         public static extern int GetWindowLong(nint hWnd, int nIndex);
 
         [DllImport("user32.dll", SetLastError = true)]

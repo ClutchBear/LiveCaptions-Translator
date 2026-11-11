@@ -68,7 +68,16 @@ namespace LiveCaptionsTranslator
                 }
                 catch (ElementNotAvailableException)
                 {
+                    LiveCaptionsTranslator.Utils.OverlayDiag.Log("[sync] ElementNotAvailable -> Window=null");
                     Window = null;
+                    continue;
+                }
+                catch (Exception ex)
+                {
+                    LiveCaptionsTranslator.Utils.OverlayDiag.Log(
+                        "[sync] 未预期异常: " + ex.GetType().Name + ": " + ex.Message);
+                    Window = null;
+                    Thread.Sleep(1000);
                     continue;
                 }
                 if (string.IsNullOrEmpty(fullText))
@@ -164,8 +173,20 @@ namespace LiveCaptionsTranslator
                 // Check LiveCaptions.exe still alive
                 if (Window == null)
                 {
+                    LiveCaptionsTranslator.Utils.OverlayDiag.Log("[translate] Window 为 null，重启 LiveCaptions");
                     Caption.DisplayTranslatedCaption = "[WARNING] LiveCaptions was unexpectedly closed, restarting...";
-                    Window = LiveCaptionsHandler.LaunchLiveCaptions();
+                    try
+                    {
+                        Window = LiveCaptionsHandler.LaunchLiveCaptions();
+                        LiveCaptionsTranslator.Utils.OverlayDiag.Log("[translate] 重启成功");
+                    }
+                    catch (Exception ex)
+                    {
+                        LiveCaptionsTranslator.Utils.OverlayDiag.Log(
+                            "[translate] 重启失败: " + ex.GetType().Name + ": " + ex.Message);
+                        Thread.Sleep(2000);
+                        continue;
+                    }
                     Caption.DisplayTranslatedCaption = "";
                 }
 

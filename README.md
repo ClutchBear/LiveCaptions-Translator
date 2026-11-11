@@ -18,6 +18,8 @@
 
 </div>
 
+> **Personal fork** — 本 fork 增加的「悬浮字幕空闲清空」「LiveCaptions 语音语言切换」「提示词自动同步」，以及配套的完全本地 llama.cpp + Hy-MT2 翻译引擎部署说明（模型、启动参数、`启动翻译引擎.bat` 等），见 **[README-fork.md](README-fork.md)**（中文）。
+
 ## Overview
 
 **✨ LiveCaptions Translator = Windows LiveCaptions + Translate API ✨**

@@ -61,3 +61,10 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
+
+###############################################################################
+# deploy/ 下的 Windows 脚本：.bat 是 GBK，.ps1 是 UTF-8 with BOM。
+# 原样保存字节，禁止 git 做换行符 / 编码归一化，否则双击 .bat 会乱码。
+###############################################################################
+deploy/*.bat -text
+deploy/*.ps1 -text

@@ -13,9 +13,11 @@ namespace LiveCaptionsTranslator.utils
 
         public static AutomationElement LaunchLiveCaptions()
         {
+            LiveCaptionsTranslator.Utils.OverlayDiag.Log("[launch] 开始重启 LiveCaptions");
             // Init
             KillAllProcessesByPName(PROCESS_NAME);
             var process = Process.Start(PROCESS_NAME);
+            LiveCaptionsTranslator.Utils.OverlayDiag.Log($"[launch] Process.Start -> pid={process?.Id}");
 
             // Search for window
             AutomationElement? window = null;
@@ -37,6 +39,9 @@ namespace LiveCaptionsTranslator.utils
             nint hWnd = new nint((long)window.Current.NativeWindowHandle);
             WindowsAPI.GetWindowThreadProcessId(hWnd, out int processId);
             var process = Process.GetProcessById(processId);
+
+            LiveCaptionsTranslator.Utils.OverlayDiag.Log(
+                $"[kill] KillLiveCaptions: hwnd={hWnd} pid={processId} name={process.ProcessName} self={Environment.ProcessId}");
 
             // Kill process
             process.Kill();
@@ -94,6 +99,16 @@ namespace LiveCaptionsTranslator.utils
                 captionsTextBlock = null;
                 throw;
             }
+        }
+
+        /// <summary>
+        /// 清掉缓存的字幕元素。切换语言等操作会让 LiveCaptions 重建内部 UI，
+        /// 不清缓存的话 GetCaptions 会抛 ElementNotAvailableException，
+        /// 进而让 TranslateLoop 误判"LiveCaptions 被关闭"而把它杀掉重启。
+        /// </summary>
+        public static void ResetCaptionCache()
+        {
+            captionsTextBlock = null;
         }
 
         private static AutomationElement FindWindowByPId(int processId)
@@ -164,6 +179,8 @@ namespace LiveCaptionsTranslator.utils
                 return;
             foreach (Process process in processes)
             {
+                LiveCaptionsTranslator.Utils.OverlayDiag.Log(
+                    $"[kill] KillAllProcessesByPName: {process.ProcessName} pid={process.Id}");
                 process.Kill();
                 process.WaitForExit();
             }

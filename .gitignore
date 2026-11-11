@@ -363,3 +363,11 @@ MigrationBackup/
 FodyWeavers.xsd
 
 .idea/
+
+# 本地调试脚本与截图，不随仓库分发
+scratch/
+
+# 运行期产物
+overlay-debug.log
+uia-dump.log
+setting.json

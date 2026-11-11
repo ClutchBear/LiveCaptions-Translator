@@ -1,6 +1,7 @@
 ﻿using System.Windows;
 
 using LiveCaptionsTranslator.utils;
+using LiveCaptionsTranslator.Utils;
 
 namespace LiveCaptionsTranslator
 {
@@ -9,6 +10,13 @@ namespace LiveCaptionsTranslator
         App()
         {
             AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
+            AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+                OverlayDiag.Log("[fatal] UnhandledException: " + e.ExceptionObject);
+            DispatcherUnhandledException += (s, e) =>
+                OverlayDiag.Log("[fatal] DispatcherUnhandledException: " + e.Exception);
+            TaskScheduler.UnobservedTaskException += (s, e) =>
+                OverlayDiag.Log("[fatal] UnobservedTaskException: " + e.Exception);
+
             Translator.Setting?.Save();
 
             Task.Run(() => Translator.SyncLoop());
@@ -18,6 +26,7 @@ namespace LiveCaptionsTranslator
 
         private static void OnProcessExit(object sender, EventArgs e)
         {
+            OverlayDiag.Log("[exit] ProcessExit 触发");
             if (Translator.Window != null)
             {
                 LiveCaptionsHandler.RestoreLiveCaptions(Translator.Window);

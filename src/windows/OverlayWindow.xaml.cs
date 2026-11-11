@@ -47,8 +47,15 @@ namespace LiveCaptionsTranslator
             InitializeComponent();
             DataContext = Translator.Caption;
 
-            Loaded += (s, e) => Translator.Caption.PropertyChanged += TranslatedChanged;
-            Unloaded += (s, e) => Translator.Caption.PropertyChanged -= TranslatedChanged;
+            // 订阅放在构造/Closed，而不是 Loaded/Unloaded：
+            // 空闲自动隐藏用 Hide()/Show()，万一 Unloaded 被触发，订阅会被摘掉，
+            // 悬浮窗就再也叫不回来了。
+            Translator.Caption.PropertyChanged += TranslatedChanged;
+            Closed += (s, e) =>
+            {
+                Translator.Caption.PropertyChanged -= TranslatedChanged;
+                idleTimer.Stop();
+            };
 
             OriginalCaption.FontWeight = Translator.Setting.OverlayWindow.FontBold == Utils.FontBold.Both ?
                 FontWeights.Bold : FontWeights.Regular;
@@ -66,6 +73,68 @@ namespace LiveCaptionsTranslator
 
             ApplyFontSize();
             ApplyBackgroundOpacity();
+
+            // ── 空闲自动清空字幕 ──────────────────────────────────────
+            // 影片没有台词时 LiveCaptions 会一直保留最后一句，字幕就永远挂在画面上。
+            // 这里在进程内计时：超过 IdleClearSeconds 秒没有新译文就把字幕/翻译清空，
+            // 但**窗口和背景框留在原位不动**；下一句译文到达时再恢复显示。
+            ShowActivated = false;      // 万一重新显示时不要抢焦点（正在放片，抢焦点很致命）
+            lastOverlayTranslation = Translator.Caption.OverlayCurrentTranslation;
+            lastActivityAt = DateTime.Now;
+
+            idleTimer.Interval = TimeSpan.FromSeconds(1);
+            idleTimer.Tick += IdleTimer_Tick;
+            idleTimer.Start();
+
+            OverlayDiag.Log($"[ctor] idleClearSeconds={Translator.Setting.OverlayWindow.IdleClearSeconds} " +
+                            $"ShowActivated={ShowActivated} SizeToContent={SizeToContent} " +
+                            $"Top={Top} Left={Left} W={Width} H={Height} MinH={MinHeight} " +
+                            $"lastOverlayTranslation='{lastOverlayTranslation}'");
+            IsVisibleChanged += (s, e) =>
+                OverlayDiag.LogWithStack($"[IsVisibleChanged] {e.OldValue} -> {e.NewValue}");
+            Closed += (s, e) => OverlayDiag.LogWithStack("[Closed]");
+        }
+
+        private readonly DispatcherTimer idleTimer = new();
+        private DateTime lastActivityAt;
+        private string lastOverlayTranslation = string.Empty;
+        private bool captionsCleared = false;
+
+        /// <summary>
+        /// 清空 / 恢复字幕内容。窗口本身和背景框始终保留在原位。
+        /// 注意：文字不是由 TextBlock 自己画的 —— StrokeDecorator 把子元素 Opacity 置 0，
+        /// 在 OnRender 里用 FormattedText 重绘（为了描边）。所以必须隐藏**装饰器**，
+        /// 只隐藏 TextBlock 文字仍会被画出来。
+        /// 用 Hidden 而不是 Collapsed：Hidden 仍占布局空间，
+        /// 窗口高度（SizeToContent="Height"）不会因为清空而塌缩跳动。
+        /// </summary>
+        private void SetCaptionsCleared(bool cleared)
+        {
+            if (captionsCleared == cleared)
+                return;
+            captionsCleared = cleared;
+
+            Visibility visibility = cleared ? Visibility.Hidden : Visibility.Visible;
+            TranslatedCaptionDecorator.Visibility = visibility;
+            OriginalCaptionDecorator.Visibility = visibility;
+
+            OverlayDiag.Log($"[clear] captions cleared={cleared}");
+        }
+
+        private void IdleTimer_Tick(object? sender, EventArgs e)
+        {
+            int idleSeconds = Translator.Setting.OverlayWindow.IdleClearSeconds;
+            if (idleSeconds <= 0)       // 0 = 关闭此功能
+                return;
+            if (captionsCleared)        // 已经清空，不用重复处理
+                return;
+
+            double elapsed = (DateTime.Now - lastActivityAt).TotalSeconds;
+            if (elapsed < idleSeconds)
+                return;
+
+            OverlayDiag.Log($"[tick] CLEAR! elapsed={elapsed:F1} idleSeconds={idleSeconds}");
+            SetCaptionsCleared(true);
         }
 
         private void Border_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -143,6 +212,26 @@ namespace LiveCaptionsTranslator
         private void TranslatedChanged(object sender, PropertyChangedEventArgs e)
         {
             ApplyFontSize();
+
+            // 只有"译文真的变了"才算有新台词。
+            // 注意：OverlayOriginalCaption 在 Translator.SyncLoop 里每 25ms 无条件赋一次值，
+            // 不能拿它当活动信号，否则计时器永远被重置。
+            if (e.PropertyName != nameof(LiveCaptionsTranslator.models.Caption.OverlayCurrentTranslation))
+                return;
+
+            string text = Translator.Caption.OverlayCurrentTranslation ?? string.Empty;
+            if (string.Equals(text, lastOverlayTranslation, StringComparison.Ordinal))
+                return;
+
+            lastOverlayTranslation = text;
+
+            // DisplayLoop 跑在后台线程，属性变更回调也在后台线程触发。
+            // 任何 UI 操作都必须回 UI 线程，否则会抛跨线程访问异常。
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                lastActivityAt = DateTime.Now;
+                SetCaptionsCleared(false);   // 有新台词 ⇒ 恢复显示
+            }), DispatcherPriority.Normal);
         }
 
         private void Window_MouseEnter(object sender, MouseEventArgs e)

@@ -13,6 +13,7 @@ namespace LiveCaptionsTranslator.models
         private bool latencyShow = false;
         private int originalFontSize = 15;
         private int translatedFontSize = 18;
+        private string spokenLanguage = "英语(美国)";
 
         public bool Topmost
         {
@@ -60,6 +61,17 @@ namespace LiveCaptionsTranslator.models
             }
         }
 
+        // LiveCaptions 的语音识别语言（它听什么语言），用于设置页记住当前选择
+        public string SpokenLanguage
+        {
+            get => spokenLanguage;
+            set
+            {
+                spokenLanguage = value;
+                OnPropertyChanged("SpokenLanguage");
+            }
+        }
+
         public void OnPropertyChanged([CallerMemberName] string propName = "")
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propName));
@@ -78,6 +90,7 @@ namespace LiveCaptionsTranslator.models
 
         private Color backgroundColor = Color.Black;
         private int opacity = 150;
+        private int idleClearSeconds = 30;
 
         public int FontSize
         {
@@ -131,6 +144,17 @@ namespace LiveCaptionsTranslator.models
             {
                 opacity = value;
                 OnPropertyChanged("Opacity");
+            }
+        }
+
+        // 多少秒没有新译文就把字幕内容清空（窗口和背景框保留在原位）；0 = 关闭此功能
+        public int IdleClearSeconds
+        {
+            get => idleClearSeconds;
+            set
+            {
+                idleClearSeconds = value;
+                OnPropertyChanged("IdleClearSeconds");
             }
         }
 
