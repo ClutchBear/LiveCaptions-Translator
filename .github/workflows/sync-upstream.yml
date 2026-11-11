@@ -117,23 +117,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = 'auto-' + (Get-Date -ToUniversalTime()).ToString('yyyyMMdd-HHmmss')
+          # Keep this script pure ASCII. The runner writes run: blocks to a temp .ps1
+          # and non-ASCII bytes can break PowerShell parsing at load time.
+          $tag = 'auto-' + (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')
           $exe = Join-Path $PWD 'publish\LiveCaptionsTranslator-win-x64-withruntime.exe'
-          $notes = @"
-          Auto build: upstream synced without conflicts (or manual force rebuild).
-
-          - Reason: $env:REASON
-          - Fork commit: $env:MERGED_SHA
-          - Upstream: SakiRinn/LiveCaptions-Translator@master
-          - Asset: LiveCaptionsTranslator-win-x64-withruntime.exe (self-contained single file, ~72 MB)
-
-          Replace the exe of the same name in D:\tools\LiveCaptionsTranslator, then run 启动翻译引擎.bat.
-          setting.json and the .bat/.ps1 scripts are not touched.
-
-          Permanent download URL:
-          https://github.com/ClutchBear/LiveCaptions-Translator/releases/latest/download/LiveCaptionsTranslator-win-x64-withruntime.exe
-          "@
+          $lines = @(
+            'Auto build: upstream synced without conflicts (or manual force rebuild).',
+            '',
+            "- Reason: $env:REASON",
+            "- Fork commit: $env:MERGED_SHA",
+            '- Upstream: SakiRinn/LiveCaptions-Translator@master',
+            '- Asset: LiveCaptionsTranslator-win-x64-withruntime.exe (self-contained single file, ~72 MB)',
+            '',
+            'Replace the exe of the same name in the deployment folder, then run the launcher .bat.',
+            'setting.json and the startup scripts are not touched.',
+            '',
+            'Permanent download URL:',
+            'https://github.com/ClutchBear/LiveCaptions-Translator/releases/latest/download/LiveCaptionsTranslator-win-x64-withruntime.exe'
+          )
           $notesFile = Join-Path $PWD 'release-notes.md'
-          [System.IO.File]::WriteAllText($notesFile, $notes, [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::WriteAllLines($notesFile, $lines, [System.Text.UTF8Encoding]::new($false))
           gh release create $tag $exe --target $env:MERGED_SHA --title "Auto build $tag" --notes-file $notesFile
           if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
