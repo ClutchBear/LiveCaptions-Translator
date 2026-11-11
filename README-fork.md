@@ -16,6 +16,7 @@
 - [五、使用要点](#五使用要点)
 - [六、已知限制](#六已知限制)
 - [七、与上游同步](#七与上游同步)
+- [八、自动同步与自动打包](#八自动同步与自动打包)
 
 ---
 
@@ -340,6 +341,56 @@ src/models/WindowState.cs                  （两个新配置项）
 src/pages/SettingPage.xaml                 （Overlay Idle Clear 输入框）
 src/apis/WindowsAPI.cs                     （IsIconic）
 ```
+
+---
+
+## 八、自动同步与自动打包
+
+仓库里的 `同步上游并自动打包`（`.github/workflows/sync-upstream.yml`）**每天 UTC 18:00（北京时间 02:00）** 检查上游 `SakiRinn/LiveCaptions-Translator` 的 `master`：
+
+| 情况 | 行为 |
+|---|---|
+| 上游无新提交 | 什么都不做，不产生新 Release |
+| 有新提交、**能干净合并** | 自动 merge → push 到本 fork 的 `master` → 构建 → 发布 Release |
+| 有代码冲突 | 整体失败并 `git merge --abort` 回滚，**不 push、不打包**，等人工处理 |
+
+### 固定下载链接
+
+每次成功打包会发一个 tag 形如 `auto-YYYYMMDD-HHmmss` 的 Release，附件名固定为
+`LiveCaptionsTranslator-win-x64-withruntime.exe`（x64 自包含单文件，约 72 MB）。
+
+**只需记住这一个地址**，它永远指向最新一次构建：
+
+```
+https://github.com/ClutchBear/LiveCaptions-Translator/releases/latest/download/LiveCaptionsTranslator-win-x64-withruntime.exe
+```
+
+下载后覆盖部署目录里的同名 exe 即可，`setting.json`、`启动翻译引擎.bat` 和它的 ps1 都不受影响。
+
+### 手动触发
+
+Actions 页面 → 「同步上游并自动打包」→ **Run workflow**，可勾 `force_build`：即使上游没有更新也重新构建一次并出 Release。上游长期不动时用它验证链路是否还活着。
+
+### 前提与限制
+
+- fork 的 GitHub Actions 已启用，workflow 声明 `permissions: contents: write`（要 push 合并结果、创建 Release），仓库级 `default_workflow_permissions` 也已设为 `write`。
+- 定时跑在 GitHub 托管 runner 上，**不保证准点**，延迟十几分钟到一小时都正常。
+- GitHub 规定：公开仓库 **60 天无任何仓库活动会自动停用定时 workflow**。上游更新很稀疏（截至 2026-11-11，上游最后一次提交是 2026-08-17），所以建议每隔一两个月去 Actions 页面手动 Run 一次；真被停用了，改一下 workflow 里的 cron 就会重新激活。
+- 「无冲突」只代表 git 能合并，**不代表上游改动兼容本 fork 的增强**；打包成功只保证能编译，功能仍需实测。
+- 上游自带的 `CI/CD Pipeline` 保留着，本地 push 时会做 `dotnet format` 检查并构建 x64/arm64 四个变体，作为额外质量门禁。自动同步时由 `GITHUB_TOKEN` 发起的 push 不会二次触发它。
+- ⚠️ workflow 的 `run:` 块里**不要写中文**：runner 会把它落成临时 `.ps1`，非 ASCII 字节会让 PowerShell 在加载阶段解析失败。中文只通过环境变量在运行时传入。
+
+### 冲突了怎么办
+
+那条 run 会标红，日志写明「上游更新与本 fork 改动冲突」。此时仓库**没有发生任何变更**，在本机执行：
+
+```bash
+git fetch upstream
+git merge upstream/master     # 手工解决冲突
+git push origin master
+```
+
+解决后再手动 Run 一次 workflow 即可打包。
 
 ---
 
